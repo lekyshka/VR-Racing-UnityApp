@@ -1,0 +1,54 @@
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+
+# Unity generated project files
+*.csproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity cache and crash files
+sysinfo.txt
+*.stackdump
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local scene/model generation tools kept only on this computer
+Assets/Editor/
+Assets/Editor.meta
+BuildVRRacingScene.bat
+BuildVRRacingScene.ps1
+Assets/Models/blender_create_racer.py
+Assets/Models/blender_create_racer.py.meta
+Assets/Documentation/
+Assets/Documentation.meta
+
+# Imported TextMesh Pro samples/docs not used by the game scene
+Assets/TextMesh Pro/Examples & Extras/
+Assets/TextMesh Pro/Examples & Extras.meta
+Assets/TextMesh Pro/Documentation/
+Assets/TextMesh Pro/Documentation.meta
