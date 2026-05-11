@@ -89,6 +89,7 @@ public sealed class RaceGameManager : MonoBehaviour
 
         if (lapTracker != null)
         {
+            lapTracker.enabled = false;
             lapTracker.ResetRace();
         }
 

@@ -3,7 +3,7 @@ using UnityEngine;
 
 public sealed class ProceduralTrackGenerator : MonoBehaviour
 {
-    private const int NodeCount = 14;
+    private const int NodeCount = 48;
     private const float RoadY = 0.02f;
     private const float CurbY = 0.18f;
     private const float WallY = 0.75f;
@@ -11,8 +11,8 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
     [SerializeField] private AStarGrid grid;
     [SerializeField] private RaceSettings settings;
     [SerializeField] private bool randomizeEveryRace = true;
-    [SerializeField] private float trackRadius = 92f;
-    [SerializeField] private float trackWidth = 24f;
+    [SerializeField] private float trackRadius = 78f;
+    [SerializeField] private float trackWidth = 28f;
     [SerializeField] private float curbWidth = 3.2f;
     [SerializeField] private float wallWidth = 1.4f;
 
@@ -26,7 +26,9 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
     private Material curbWhiteMaterial;
     private Material wallMaterial;
     private Material startMaterial;
+    private Material groundMaterial;
     private Vector3[] centerline;
+    private int generationCounter;
 
     public static ProceduralTrackGenerator Instance { get; private set; }
 
@@ -74,9 +76,13 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         DisableStaticTrackPieces();
         EnsureRoots();
 
-        var seed = randomizeEveryRace ? System.Environment.TickCount : 20260512;
+        generationCounter++;
+        var seed = randomizeEveryRace
+            ? System.Environment.TickCount ^ System.Guid.NewGuid().GetHashCode() ^ (generationCounter * 73856093)
+            : 20260512;
         centerline = BuildCenterline(seed);
 
+        BuildGroundSurface();
         BuildRoadSurface();
         BuildCurbSurface();
         BuildCollisionWalls();
@@ -93,6 +99,7 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         curbWhiteMaterial = LoadMaterial("CurbsWhite", Color.white);
         wallMaterial = LoadMaterial("Tires", new Color(0.02f, 0.02f, 0.02f));
         startMaterial = LoadMaterial("CarGlass", new Color(0.95f, 0.95f, 0.85f));
+        groundMaterial = LoadMaterial("Infield", new Color(0.16f, 0.36f, 0.22f));
     }
 
     private static Material LoadMaterial(string materialName, Color fallbackColor)
@@ -118,6 +125,14 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         DisableByName("Right Continuous Curb");
         DisableByName("Left Continuous Curb Mesh");
         DisableByName("Right Continuous Curb Mesh");
+        DisableByName("Start Line");
+        DisableByName("Start Left Post");
+        DisableByName("Start Right Post");
+
+        for (var i = 1; i <= 5; i++)
+        {
+            DisableByName($"Finish Parking Spot {i}");
+        }
 
         for (var i = 0; i < 32; i++)
         {
@@ -155,41 +170,73 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
     {
         var random = new System.Random(seed);
         var points = new Vector3[NodeCount];
+        var trackType = random.Next(0, 3);
+        var baseRadius = trackRadius * Mathf.Lerp(0.86f, 1.38f, (float)random.NextDouble());
+        var radiusX = baseRadius;
+        var radiusZ = baseRadius;
+        var snakeAmplitude = 0f;
+        var snakeFrequency = 2f;
 
-        points[0] = new Vector3(-44f, 0f, -78f);
-        points[1] = new Vector3(18f, 0f, -78f);
-
-        for (var i = 2; i < NodeCount; i++)
+        if (trackType == 1)
         {
-            var angle = Mathf.PI * 2f * i / NodeCount;
-            var radiusNoise = Mathf.Lerp(0.78f, 1.18f, (float)random.NextDouble());
-            var x = Mathf.Cos(angle) * trackRadius * radiusNoise;
-            var z = Mathf.Sin(angle) * trackRadius * Mathf.Lerp(0.72f, 1.12f, (float)random.NextDouble());
-            points[i] = new Vector3(x, 0f, z);
+            radiusX = baseRadius * Mathf.Lerp(1.45f, 1.95f, (float)random.NextDouble());
+            radiusZ = baseRadius * Mathf.Lerp(0.68f, 0.86f, (float)random.NextDouble());
+        }
+        else if (trackType == 2)
+        {
+            radiusX = baseRadius * Mathf.Lerp(1.2f, 1.55f, (float)random.NextDouble());
+            radiusZ = baseRadius * Mathf.Lerp(0.78f, 1.02f, (float)random.NextDouble());
+            snakeAmplitude = baseRadius * Mathf.Lerp(0.22f, 0.34f, (float)random.NextDouble());
+            snakeFrequency = random.NextDouble() > 0.5 ? 2f : 3f;
         }
 
-        return SmoothPoints(points);
+        var rotation = Mathf.Lerp(-24f, 24f, (float)random.NextDouble()) * Mathf.Deg2Rad;
+        var phase = Mathf.Lerp(0f, Mathf.PI * 2f, (float)random.NextDouble());
+
+        for (var i = 0; i < NodeCount; i++)
+        {
+            var angle = Mathf.PI * 2f * i / NodeCount - Mathf.PI * 0.5f;
+            var x = Mathf.Cos(angle) * radiusX;
+            var z = Mathf.Sin(angle) * radiusZ;
+
+            if (trackType == 2)
+            {
+                x += Mathf.Sin(angle * snakeFrequency + phase) * snakeAmplitude;
+            }
+
+            var rotatedX = x * Mathf.Cos(rotation) - z * Mathf.Sin(rotation);
+            var rotatedZ = x * Mathf.Sin(rotation) + z * Mathf.Cos(rotation);
+            points[i] = new Vector3(rotatedX, 0f, rotatedZ);
+        }
+
+        AlignStartToStraight(points);
+        return points;
     }
 
-    private static Vector3[] SmoothPoints(Vector3[] points)
+    private static void AlignStartToStraight(Vector3[] points)
     {
-        var result = new Vector3[points.Length];
+        var midpoint = (points[0] + points[1]) * 0.5f;
+        var shift = new Vector3(0f, 0f, -86f) - midpoint;
+
         for (var i = 0; i < points.Length; i++)
         {
-            var previous = points[(i - 1 + points.Length) % points.Length];
-            var current = points[i];
-            var next = points[(i + 1) % points.Length];
-            result[i] = (previous + current * 2f + next) * 0.25f;
+            points[i] += shift;
         }
+    }
 
-        result[0] = new Vector3(-44f, 0f, -78f);
-        result[1] = new Vector3(18f, 0f, -78f);
-        return result;
+    private void BuildGroundSurface()
+    {
+        var ground = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        ground.name = "Generated Large Ground";
+        ground.transform.SetParent(generatedRoot.transform, false);
+        ground.transform.position = new Vector3(0f, -0.16f, 0f);
+        ground.transform.localScale = new Vector3(430f, 0.24f, 380f);
+        ground.GetComponent<MeshRenderer>().sharedMaterial = groundMaterial;
     }
 
     private void BuildRoadSurface()
     {
-        var mesh = BuildRibbonMesh(centerline, trackWidth, RoadY, false, 0.02f);
+        var mesh = BuildLoopRibbonMesh(centerline, -trackWidth * 0.5f, trackWidth * 0.5f, RoadY, "Generated Continuous Road Mesh");
         var road = CreateMeshObject("Generated Continuous Road Surface", mesh, roadMaterial, true);
         road.layer = 0;
     }
@@ -201,8 +248,8 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         var redTriangles = new List<int>();
         var whiteTriangles = new List<int>();
 
-        AppendCurbSide(vertices, redTriangles, whiteTriangles, true);
-        AppendCurbSide(vertices, redTriangles, whiteTriangles, false);
+        AppendCurbSide(vertices, redTriangles, whiteTriangles, trackWidth * 0.5f, trackWidth * 0.5f + curbWidth);
+        AppendCurbSide(vertices, redTriangles, whiteTriangles, -trackWidth * 0.5f - curbWidth, -trackWidth * 0.5f);
 
         curbMesh.SetVertices(vertices);
         curbMesh.subMeshCount = 2;
@@ -215,18 +262,15 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         curb.GetComponent<MeshRenderer>().sharedMaterials = new[] { curbRedMaterial, curbWhiteMaterial };
     }
 
-    private void AppendCurbSide(List<Vector3> vertices, List<int> redTriangles, List<int> whiteTriangles, bool leftSide)
+    private void AppendCurbSide(List<Vector3> vertices, List<int> redTriangles, List<int> whiteTriangles, float innerOffset, float outerOffset)
     {
         for (var i = 0; i < centerline.Length; i++)
         {
             var nextIndex = (i + 1) % centerline.Length;
-            var current = centerline[i];
-            var next = centerline[nextIndex];
-            var normal = GetSegmentNormal(current, next) * (leftSide ? 1f : -1f);
-            var innerA = current + normal * (trackWidth * 0.5f);
-            var outerA = current + normal * (trackWidth * 0.5f + curbWidth);
-            var innerB = next + normal * (trackWidth * 0.5f);
-            var outerB = next + normal * (trackWidth * 0.5f + curbWidth);
+            var innerA = OffsetPoint(i, innerOffset);
+            var outerA = OffsetPoint(i, outerOffset);
+            var innerB = OffsetPoint(nextIndex, innerOffset);
+            var outerB = OffsetPoint(nextIndex, outerOffset);
 
             var start = vertices.Count;
             vertices.Add(new Vector3(innerA.x, CurbY, innerA.z));
@@ -246,26 +290,21 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
 
     private void BuildCollisionWalls()
     {
-        CreateMeshObject("Generated Left Collision Wall", BuildWallMesh(true), wallMaterial, true);
-        CreateMeshObject("Generated Right Collision Wall", BuildWallMesh(false), wallMaterial, true);
+        CreateMeshObject("Generated Left Collision Wall", BuildWallMesh(trackWidth * 0.5f + curbWidth + wallWidth * 0.5f), wallMaterial, true);
+        CreateMeshObject("Generated Right Collision Wall", BuildWallMesh(-trackWidth * 0.5f - curbWidth - wallWidth * 0.5f), wallMaterial, true);
     }
 
-    private Mesh BuildWallMesh(bool leftSide)
+    private Mesh BuildWallMesh(float offset)
     {
-        var mesh = new Mesh { name = leftSide ? "Generated Left Wall Mesh" : "Generated Right Wall Mesh" };
+        var mesh = new Mesh { name = "Generated Wall Mesh" };
         var vertices = new List<Vector3>();
         var triangles = new List<int>();
-        var side = leftSide ? 1f : -1f;
-        var offset = trackWidth * 0.5f + curbWidth + wallWidth * 0.5f;
 
         for (var i = 0; i < centerline.Length; i++)
         {
             var nextIndex = (i + 1) % centerline.Length;
-            var current = centerline[i];
-            var next = centerline[nextIndex];
-            var normal = GetSegmentNormal(current, next) * side;
-            var bottomA = current + normal * offset;
-            var bottomB = next + normal * offset;
+            var bottomA = OffsetPoint(i, offset);
+            var bottomB = OffsetPoint(nextIndex, offset);
 
             var start = vertices.Count;
             vertices.Add(new Vector3(bottomA.x, 0.05f, bottomA.z));
@@ -288,58 +327,34 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         return mesh;
     }
 
-    private Mesh BuildRibbonMesh(IReadOnlyList<Vector3> points, float width, float y, bool sideOnly, float offset)
+    private Mesh BuildLoopRibbonMesh(IReadOnlyList<Vector3> points, float leftOffset, float rightOffset, float y, string meshName)
     {
-        var mesh = new Mesh { name = "Generated Ribbon Mesh" };
+        var mesh = new Mesh { name = meshName };
         var vertices = new List<Vector3>();
         var triangles = new List<int>();
 
         for (var i = 0; i < points.Count; i++)
         {
+            var left = OffsetPoint(i, leftOffset);
+            var right = OffsetPoint(i, rightOffset);
+            vertices.Add(new Vector3(left.x, y, left.z));
+            vertices.Add(new Vector3(right.x, y, right.z));
+        }
+
+        for (var i = 0; i < points.Count; i++)
+        {
             var nextIndex = (i + 1) % points.Count;
-            var current = points[i];
-            var next = points[nextIndex];
-            var normal = GetSegmentNormal(current, next);
+            var leftA = i * 2;
+            var rightA = leftA + 1;
+            var leftB = nextIndex * 2;
+            var rightB = leftB + 1;
 
-            Vector3 leftA;
-            Vector3 rightA;
-            Vector3 leftB;
-            Vector3 rightB;
-
-            if (sideOnly)
-            {
-                leftA = current + normal * (offset + width * 0.5f);
-                rightA = current + normal * (offset - width * 0.5f);
-                leftB = next + normal * (offset + width * 0.5f);
-                rightB = next + normal * (offset - width * 0.5f);
-            }
-            else if (offset > 0.1f)
-            {
-                leftA = current - normal * (offset - width * 0.5f);
-                rightA = current - normal * (offset + width * 0.5f);
-                leftB = next - normal * (offset - width * 0.5f);
-                rightB = next - normal * (offset + width * 0.5f);
-            }
-            else
-            {
-                leftA = current + normal * (width * 0.5f);
-                rightA = current - normal * (width * 0.5f);
-                leftB = next + normal * (width * 0.5f);
-                rightB = next - normal * (width * 0.5f);
-            }
-
-            var start = vertices.Count;
-            vertices.Add(new Vector3(leftA.x, y, leftA.z));
-            vertices.Add(new Vector3(rightA.x, y, rightA.z));
-            vertices.Add(new Vector3(leftB.x, y, leftB.z));
-            vertices.Add(new Vector3(rightB.x, y, rightB.z));
-
-            triangles.Add(start);
-            triangles.Add(start + 2);
-            triangles.Add(start + 1);
-            triangles.Add(start + 1);
-            triangles.Add(start + 2);
-            triangles.Add(start + 3);
+            triangles.Add(leftA);
+            triangles.Add(leftB);
+            triangles.Add(rightA);
+            triangles.Add(rightA);
+            triangles.Add(leftB);
+            triangles.Add(rightB);
         }
 
         mesh.SetVertices(vertices);
@@ -347,6 +362,20 @@ public sealed class ProceduralTrackGenerator : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
         return mesh;
+    }
+
+    private Vector3 OffsetPoint(int index, float offset)
+    {
+        var normal = GetNodeNormal(index);
+        return centerline[index] + normal * offset;
+    }
+
+    private Vector3 GetNodeNormal(int index)
+    {
+        var count = centerline.Length;
+        var previous = centerline[(index - 1 + count) % count];
+        var next = centerline[(index + 1) % count];
+        return GetSegmentNormal(previous, next);
     }
 
     private GameObject CreateMeshObject(string objectName, Mesh mesh, Material material, bool collider)
