@@ -14,6 +14,8 @@ public sealed class RacingAIDriver : MonoBehaviour
     private Rigidbody body;
     private RaceProgressTracker progressTracker;
     private int targetNodeIndex;
+    private readonly List<Transform> currentPath = new List<Transform>();
+    private int pathCursor;
     private bool parked;
 
     private void Awake()
@@ -43,13 +45,27 @@ public sealed class RacingAIDriver : MonoBehaviour
             return;
         }
 
+        if (currentPath.Count == 0 || pathCursor >= currentPath.Count)
+        {
+            RebuildAStarPath();
+        }
+
         var target = GetLanePosition(targetNodeIndex);
         var flatTarget = new Vector3(target.x, transform.position.y, target.z);
         var toTarget = flatTarget - transform.position;
 
         if (toTarget.magnitude <= waypointReachDistance)
         {
-            targetNodeIndex = (targetNodeIndex + 1) % grid.Nodes.Count;
+            pathCursor++;
+            if (pathCursor >= currentPath.Count)
+            {
+                RebuildAStarPath();
+            }
+            else
+            {
+                targetNodeIndex = Mathf.Max(0, grid.IndexOf(currentPath[pathCursor]));
+            }
+
             target = GetLanePosition(targetNodeIndex);
             flatTarget = new Vector3(target.x, transform.position.y, target.z);
             toTarget = flatTarget - transform.position;
@@ -75,6 +91,8 @@ public sealed class RacingAIDriver : MonoBehaviour
         maxSpeed = newMaxSpeed;
         parkingSpot = finishParkingSpot;
         parked = false;
+        currentPath.Clear();
+        pathCursor = 0;
     }
 
     public void ResetDriver()
@@ -115,10 +133,28 @@ public sealed class RacingAIDriver : MonoBehaviour
         var closest = grid.FindClosestNode(transform.position);
         var closestIndex = Mathf.Max(0, grid.IndexOf(closest));
         targetNodeIndex = (closestIndex + 1) % grid.Nodes.Count;
+        RebuildAStarPath();
+    }
 
-        // The AI route is still generated from the A* graph; movement follows the next clockwise node
-        // so cars do not all pick the same shortest reverse route and pile up.
-        grid.FindPath(closest, grid.Nodes[targetNodeIndex]);
+    private void RebuildAStarPath()
+    {
+        if (grid == null || grid.Nodes.Count == 0)
+        {
+            return;
+        }
+
+        var start = grid.FindClosestNode(transform.position);
+        var startIndex = Mathf.Max(0, grid.IndexOf(start));
+        var goalIndex = (startIndex + 5) % grid.Nodes.Count;
+        var path = grid.FindPath(start, grid.Nodes[goalIndex]);
+
+        currentPath.Clear();
+        currentPath.AddRange(path);
+        pathCursor = currentPath.Count > 1 ? 1 : 0;
+        if (currentPath.Count > 0)
+        {
+            targetNodeIndex = Mathf.Max(0, grid.IndexOf(currentPath[pathCursor]));
+        }
     }
 
     private void ParkAfterFinish()

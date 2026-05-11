@@ -69,6 +69,12 @@ public sealed class RaceGameManager : MonoBehaviour
 
     public void StartRace()
     {
+        if (ProceduralTrackGenerator.Instance != null)
+        {
+            ProceduralTrackGenerator.Instance.GenerateTrack();
+            CacheStartingPoses();
+        }
+
         if (settings == null)
         {
             raceStarted = true;
@@ -118,6 +124,12 @@ public sealed class RaceGameManager : MonoBehaviour
         finalPlayerPlace = 0;
         raceTime = 0f;
         finishOrder.Clear();
+
+        if (ProceduralTrackGenerator.Instance != null)
+        {
+            ProceduralTrackGenerator.Instance.GenerateTrack();
+            CacheStartingPoses();
+        }
 
         foreach (var participant in participants)
         {
@@ -214,6 +226,7 @@ public sealed class RaceGameManager : MonoBehaviour
 
     private void CacheStartingPoses()
     {
+        startingPoses.Clear();
         if (participants == null)
         {
             return;
